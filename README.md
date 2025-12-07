@@ -273,6 +273,10 @@ and tell me if I need to restart any services."
 total users, and storage usage."
 ```
 
+## Related Projects
+
+- **[supabase-sf](https://github.com/Song-JunHyeong/supabase-sf)** - Production-ready Docker Compose setup for self-hosting Supabase with automated secret management. This MCP server is designed to work seamlessly with supabase-sf.
+
 ## License
 
 Apache 2.0
