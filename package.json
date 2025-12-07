@@ -1,10 +1,10 @@
 {
-  "name": "@jun-b/supabase-mcp-sf",
+  "name": "@jun-b/supabase-mcp-sf@latest",
   "private": true,
   "scripts": {
-    "build": "pnpm --filter @jun-b/supabase-mcp-sf build",
-    "test": "pnpm --filter @jun-b/supabase-mcp-sf test",
-    "test:coverage": "pnpm --filter @jun-b/supabase-mcp-sf test:coverage",
+    "build": "pnpm --filter @jun-b/supabase-mcp-sf@latest build",
+    "test": "pnpm --filter @jun-b/supabase-mcp-sf@latest test",
+    "test:coverage": "pnpm --filter @jun-b/supabase-mcp-sf@latest test:coverage",
     "format": "biome check --write .",
     "format:check": "biome check ."
   },

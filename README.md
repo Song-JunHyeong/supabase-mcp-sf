@@ -2,8 +2,8 @@
 
 > MCP Server for Self-Hosted Supabase - Optimized for single-instance management
 
-[![npm version](https://img.shields.io/npm/v/@jun-b/supabase-mcp-sf)](https://www.npmjs.com/package/@jun-b/supabase-mcp-sf)
-[![License](https://img.shields.io/npm/l/@jun-b/supabase-mcp-sf)](https://github.com/Song-JunHyeong/supabase-sf/blob/master/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@jun-b/supabase-mcp-sf@latest)](https://www.npmjs.com/package/@jun-b/supabase-mcp-sf@latest)
+[![License](https://img.shields.io/npm/l/@jun-b/supabase-mcp-sf@latest)](https://github.com/Song-JunHyeong/supabase-sf/blob/master/LICENSE)
 
 Connect AI assistants (Claude, Cursor, etc.) directly to your self-hosted Supabase instance via the [Model Context Protocol](https://modelcontextprotocol.io/introduction).
 
@@ -32,7 +32,7 @@ Connect AI assistants (Claude, Cursor, etc.) directly to your self-hosted Supaba
 ## Installation
 
 ```bash
-npx @jun-b/supabase-mcp-sf
+npx @jun-b/supabase-mcp-sf@latest
 ```
 
 That's it! No global installation required.
@@ -66,7 +66,7 @@ docker compose -f docker-compose.mcp.yml up -d
   "mcpServers": {
     "supabase-sf": {
       "command": "npx",
-      "args": ["-y", "@jun-b/supabase-mcp-sf"],
+      "args": ["-y", "@jun-b/supabase-mcp-sf@latest"],
       "env": {
         "SUPABASE_URL": "http://localhost",
         "SUPABASE_SERVICE_ROLE_KEY": "your-service-role-key",

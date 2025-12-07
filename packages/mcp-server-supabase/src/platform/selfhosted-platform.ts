@@ -73,35 +73,52 @@ export function createSelfHostedPlatform(
 
     /**
      * Execute a SQL query via PostgREST RPC or direct connection.
+     * Tries multiple pg-meta endpoints for compatibility with different self-hosted setups.
      */
     async function executeSqlViaRpc<T>(query: string, readOnly?: boolean): Promise<T[]> {
-        // Use pg-meta service for SQL execution
-        const response = await fetch(`${baseUrl}/pg`, {
-            method: 'POST',
-            headers: authHeaders,
-            body: JSON.stringify({
-                query,
-                read_only: readOnly,
-            }),
-        });
+        // Try multiple pg-meta service endpoints for compatibility
+        const pgMetaEndpoints = [
+            `${baseUrl}/pg/query`,      // Kong routed pg-meta (newer setups)
+            `${baseUrl}/pg`,            // Direct pg-meta endpoint
+            `${baseUrl}/rest/v1/rpc/pg_meta_query`, // Alternative RPC endpoint
+        ];
 
-        if (!response.ok) {
-            // Fallback: try REST API with raw query
-            const restResponse = await fetch(`${baseUrl}/rest/v1/rpc/exec_sql`, {
-                method: 'POST',
-                headers: authHeaders,
-                body: JSON.stringify({ sql: query }),
-            });
+        let lastError = '';
 
-            if (!restResponse.ok) {
-                const error = await restResponse.text();
-                throw new Error(`Failed to execute SQL: ${error}`);
+        // Try each pg-meta endpoint
+        for (const endpoint of pgMetaEndpoints) {
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: authHeaders,
+                    body: JSON.stringify({
+                        query,
+                        read_only: readOnly,
+                    }),
+                });
+
+                if (response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    if (contentType?.includes('application/json')) {
+                        return response.json();
+                    }
+                }
+
+                lastError = await response.text();
+            } catch (e) {
+                lastError = String(e);
             }
-
-            return restResponse.json();
         }
 
-        return response.json();
+        // If all pg-meta endpoints fail, provide helpful error message
+        throw new Error(
+            `Failed to execute SQL query.\n` +
+            `Last error: ${lastError}\n\n` +
+            `Troubleshooting:\n` +
+            `1. Check if pg-meta service is running: docker ps | grep meta\n` +
+            `2. Verify Kong routing for /pg or /pg/query endpoints\n` +
+            `3. Check pg-meta logs: docker logs supabase-meta`
+        );
     }
 
     const database: DatabaseOperations = {
@@ -157,30 +174,61 @@ export function createSelfHostedPlatform(
             const { service, iso_timestamp_start, iso_timestamp_end } =
                 getLogsOptionsSchema.parse(options);
 
+            // Map service to docker container name
+            const containerMap: Record<string, string> = {
+                api: 'supabase-kong',
+                postgres: 'supabase-db',
+                auth: 'supabase-auth',
+                storage: 'supabase-storage',
+                realtime: 'supabase-realtime',
+                functions: 'supabase-functions',
+            };
+
             // Try to query analytics endpoint
             const analyticsUrl = new URL(`${baseUrl}/analytics/v1/query`);
 
             const sql = getLogQuery(service);
 
-            const response = await fetch(analyticsUrl.toString(), {
-                method: 'POST',
-                headers: authHeaders,
-                body: JSON.stringify({
-                    sql,
-                    iso_timestamp_start,
-                    iso_timestamp_end,
-                }),
-            });
+            try {
+                const response = await fetch(analyticsUrl.toString(), {
+                    method: 'POST',
+                    headers: authHeaders,
+                    body: JSON.stringify({
+                        sql,
+                        iso_timestamp_start,
+                        iso_timestamp_end,
+                    }),
+                });
 
-            if (!response.ok) {
-                // Analytics might not be available in self-hosted
+                if (!response.ok) {
+                    const containerName = containerMap[service] || `supabase-${service}`;
+                    return {
+                        message: 'Analytics logs are not available in this self-hosted configuration',
+                        suggestion: `Check Docker logs directly: docker logs ${containerName}`,
+                        alternative: `docker logs ${containerName} --tail 100 --since 1h`
+                    };
+                }
+
+                // Check if response is JSON before parsing
+                const contentType = response.headers.get('content-type');
+                if (!contentType?.includes('application/json')) {
+                    const containerName = containerMap[service] || `supabase-${service}`;
+                    return {
+                        message: 'Analytics service returned non-JSON response (possibly not configured)',
+                        suggestion: `Check Docker logs directly: docker logs ${containerName}`,
+                        note: 'Self-hosted Supabase requires explicit analytics/logflare setup'
+                    };
+                }
+
+                return response.json();
+            } catch (error) {
+                const containerName = containerMap[service] || `supabase-${service}`;
                 return {
-                    message: 'Analytics logs are not available in this self-hosted configuration',
-                    suggestion: 'Check Docker logs directly: docker logs <container-name>'
+                    message: `Failed to fetch logs: ${error}`,
+                    suggestion: `Check Docker logs directly: docker logs ${containerName}`,
+                    alternative: `docker compose logs ${service}`
                 };
             }
-
-            return response.json();
         },
 
         async getSecurityAdvisors(projectId: string): Promise<unknown> {
