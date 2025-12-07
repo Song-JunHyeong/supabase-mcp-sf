@@ -72,53 +72,58 @@ export function createSelfHostedPlatform(
     };
 
     /**
-     * Execute a SQL query via PostgREST RPC or direct connection.
-     * Tries multiple pg-meta endpoints for compatibility with different self-hosted setups.
+     * Execute a SQL query via pg-meta service.
+     * pg-meta provides a /query endpoint for executing arbitrary SQL.
+     * Kong routes /pg/* -> http://meta:8080/*
      */
     async function executeSqlViaRpc<T>(query: string, readOnly?: boolean): Promise<T[]> {
-        // Try multiple pg-meta service endpoints for compatibility
-        const pgMetaEndpoints = [
-            `${baseUrl}/pg/query`,      // Kong routed pg-meta (newer setups)
-            `${baseUrl}/pg`,            // Direct pg-meta endpoint
-            `${baseUrl}/rest/v1/rpc/pg_meta_query`, // Alternative RPC endpoint
-        ];
+        // pg-meta /query endpoint - this is the primary way to execute SQL
+        // Kong routing: /pg/* -> http://meta:8080/*
+        const queryEndpoint = `${baseUrl}/pg/query`;
 
-        let lastError = '';
+        try {
+            const response = await fetch(queryEndpoint, {
+                method: 'POST',
+                headers: authHeaders,
+                body: JSON.stringify({
+                    query,
+                }),
+            });
 
-        // Try each pg-meta endpoint
-        for (const endpoint of pgMetaEndpoints) {
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: authHeaders,
-                    body: JSON.stringify({
-                        query,
-                        read_only: readOnly,
-                    }),
-                });
-
-                if (response.ok) {
-                    const contentType = response.headers.get('content-type');
-                    if (contentType?.includes('application/json')) {
-                        return response.json();
-                    }
+            if (response.ok) {
+                const contentType = response.headers.get('content-type');
+                if (contentType?.includes('application/json')) {
+                    return response.json();
                 }
-
-                lastError = await response.text();
-            } catch (e) {
-                lastError = String(e);
             }
-        }
 
-        // If all pg-meta endpoints fail, provide helpful error message
-        throw new Error(
-            `Failed to execute SQL query.\n` +
-            `Last error: ${lastError}\n\n` +
-            `Troubleshooting:\n` +
-            `1. Check if pg-meta service is running: docker ps | grep meta\n` +
-            `2. Verify Kong routing for /pg or /pg/query endpoints\n` +
-            `3. Check pg-meta logs: docker logs supabase-meta`
-        );
+            const errorText = await response.text();
+
+            // Check specific error patterns
+            if (response.status === 404) {
+                throw new Error(
+                    `pg-meta service not accessible at ${queryEndpoint}\n\n` +
+                    `Troubleshooting:\n` +
+                    `1. Check if pg-meta service is running: docker ps | grep meta\n` +
+                    `2. Verify Kong routing in volumes/api/kong.yml\n` +
+                    `3. Check pg-meta logs: docker logs supabase-meta`
+                );
+            }
+
+            throw new Error(`SQL execution failed: ${errorText}`);
+        } catch (e) {
+            if (e instanceof Error && e.message.includes('pg-meta service')) {
+                throw e;
+            }
+            throw new Error(
+                `Failed to connect to pg-meta service.\n` +
+                `Error: ${e}\n\n` +
+                `Troubleshooting:\n` +
+                `1. Check if pg-meta service is running: docker ps | grep meta\n` +
+                `2. Check pg-meta logs: docker logs supabase-meta\n` +
+                `3. Restart Supabase: docker compose restart meta`
+            );
+        }
     }
 
     const database: DatabaseOperations = {
