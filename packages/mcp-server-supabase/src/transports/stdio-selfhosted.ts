@@ -50,7 +50,8 @@ async function main() {
     });
 
     if (showVersion) {
-        console.log(`${version} (self-hosted)`);
+        // Use stderr to avoid stdout pollution (Windows CRLF bug workaround)
+        console.error(`${version} (self-hosted)`);
         process.exit(0);
     }
 
