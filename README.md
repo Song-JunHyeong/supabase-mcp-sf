@@ -132,6 +132,7 @@ docker compose -f docker-compose.mcp.yml up -d
 
 ### Storage (File Management)
 
+- `create_storage_bucket`: Create a new storage bucket (via SQL) 🆕
 - `list_storage_buckets`: List storage buckets
 - `list_files`: List files in a bucket
 - `upload_file`: Upload a file (base64)

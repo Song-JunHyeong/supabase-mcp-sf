@@ -120,7 +120,7 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
       }
 
       if (storage && enabledFeatures.has('storage')) {
-        Object.assign(tools, getStorageTools({ storage, projectId, readOnly }));
+        Object.assign(tools, getStorageTools({ storage, database, projectId, readOnly }));
       }
 
       if (auth && enabledFeatures.has('auth')) {

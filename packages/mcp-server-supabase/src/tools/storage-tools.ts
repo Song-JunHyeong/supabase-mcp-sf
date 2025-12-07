@@ -1,23 +1,117 @@
 import { z } from 'zod';
-import type { StorageOperations } from '../platform/types.js';
+import type { StorageOperations, DatabaseOperations } from '../platform/types.js';
 import { injectableTool } from './util.js';
 
 const SUCCESS_RESPONSE = { success: true };
 
 export type StorageToolsOptions = {
   storage: StorageOperations;
+  database?: DatabaseOperations;
   projectId?: string;
   readOnly?: boolean;
 };
 
 export function getStorageTools({
   storage,
+  database,
   projectId,
   readOnly,
 }: StorageToolsOptions) {
   const project_id = projectId;
 
   return {
+    // Bucket Creation via SQL (workaround for self-hosted)
+    create_storage_bucket: injectableTool({
+      description: `Creates a new storage bucket in Supabase.
+
+**Important for Self-Hosted Supabase:**
+This tool creates buckets by inserting directly into the storage.buckets table via SQL.
+This is the recommended method for self-hosted instances where the Storage API may have authentication issues.
+
+**Parameters:**
+- name: Unique bucket name (lowercase, no spaces)
+- public: Whether the bucket should be publicly accessible (default: false)
+- file_size_limit: Max file size in bytes (optional, e.g., 52428800 for 50MB)
+- allowed_mime_types: Array of allowed MIME types (optional, e.g., ["image/png", "image/jpeg"])`,
+      annotations: {
+        title: 'Create storage bucket',
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      parameters: z.object({
+        project_id: z.string(),
+        name: z.string().describe('Unique bucket name (lowercase, no spaces)'),
+        public: z.boolean().default(false).describe('Whether the bucket is publicly accessible'),
+        file_size_limit: z.number().optional().describe('Maximum file size in bytes'),
+        allowed_mime_types: z.array(z.string()).optional().describe('Allowed MIME types'),
+      }),
+      inject: { project_id },
+      execute: async ({ project_id, name, public: isPublic, file_size_limit, allowed_mime_types }) => {
+        if (readOnly) {
+          throw new Error('Cannot create bucket in read-only mode.');
+        }
+
+        if (!database) {
+          throw new Error('Database operations not available. Cannot create bucket via SQL.');
+        }
+
+        // Build the INSERT query for storage.buckets
+        const mimeTypesValue = allowed_mime_types
+          ? `ARRAY[${allowed_mime_types.map(t => `'${t}'`).join(', ')}]::text[]`
+          : 'NULL';
+
+        const fileSizeLimitValue = file_size_limit !== undefined ? file_size_limit : 'NULL';
+
+        const query = `
+          INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types, created_at, updated_at)
+          VALUES (
+            '${name}',
+            '${name}',
+            ${isPublic},
+            ${fileSizeLimitValue},
+            ${mimeTypesValue},
+            NOW(),
+            NOW()
+          )
+          ON CONFLICT (id) DO NOTHING
+          RETURNING id, name, public, file_size_limit, allowed_mime_types, created_at;
+        `;
+
+        try {
+          const result = await database.executeSql(project_id, { query, read_only: false });
+
+          if (Array.isArray(result) && result.length > 0) {
+            return {
+              success: true,
+              bucket: result[0],
+              message: `Bucket '${name}' created successfully.`
+            };
+          }
+
+          // Check if bucket already exists
+          const checkQuery = `SELECT id, name, public FROM storage.buckets WHERE id = '${name}'`;
+          const existing = await database.executeSql(project_id, { query: checkQuery, read_only: true });
+
+          if (Array.isArray(existing) && existing.length > 0) {
+            return {
+              success: true,
+              bucket: existing[0],
+              message: `Bucket '${name}' already exists.`
+            };
+          }
+
+          return {
+            success: true,
+            message: `Bucket '${name}' created (or already existed).`
+          };
+        } catch (error) {
+          throw new Error(`Failed to create bucket '${name}': ${error}`);
+        }
+      },
+    }),
+
     list_storage_buckets: injectableTool({
       description: 'Lists all storage buckets in a Supabase project.',
       annotations: {
@@ -32,6 +126,16 @@ export function getStorageTools({
       }),
       inject: { project_id },
       execute: async ({ project_id }) => {
+        // Try SQL first for self-hosted reliability
+        if (database) {
+          try {
+            const query = `SELECT id, name, public, file_size_limit, allowed_mime_types, created_at, updated_at FROM storage.buckets ORDER BY created_at`;
+            const result = await database.executeSql(project_id, { query, read_only: true });
+            return result;
+          } catch {
+            // Fallback to API
+          }
+        }
         return await storage.listAllBuckets(project_id);
       },
     }),
